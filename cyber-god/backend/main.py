@@ -52,3 +52,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+from api.routes import router  # noqa: E402 — must import after app is created
+app.include_router(router, prefix="/api")
