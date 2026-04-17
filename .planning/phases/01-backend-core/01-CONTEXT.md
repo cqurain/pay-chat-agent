@@ -13,19 +13,23 @@ You can curl POST /api/chat with a purchase impulse and receive a GLM-5-powered 
 <decisions>
 ## Implementation Decisions
 
-### Mock Data Catalog
-- **D-01:** Fixed hardcoded catalog of ~10–15 common Chinese consumer items (盲盒, 耳机, 奶茶, 手机壳, 口红, 键盘, 游戏充值, 衣服, 咖啡, 球鞋 etc.) with realistic RMB base prices
-- **D-02:** Unknown items not in catalog get a default base price of ~500 RMB before ±30% randomization
-- **D-03:** Price lookup function must be designed behind a clean interface (e.g., `PriceLookup` protocol or simple callable) so it can be swapped for a real external MCP server call in a future phase — no logic embedded in the tool function itself
+### Local Price MCP Server
+- **D-01:** Product price lookup is served by a **local MCP server** (`price_mcp/`) implemented following agora-mcp's tool interface pattern (reference: https://github.com/Fewsats/agora-mcp). No external API calls, no API key required.
+- **D-02:** The local MCP server exposes a `search_products(query: str) -> list[{name, price, currency}]` tool. Internally it uses the same ~10–15 item catalog of common Chinese consumer goods with realistic RMB prices + ±30% randomization — the MCP protocol is the abstraction boundary, not a Python protocol class.
+- **D-03:** Unknown items not in catalog return a sensible default price (~500 RMB ± 30%). The MCP server is the only place price logic lives — the FastAPI backend has zero price knowledge.
+- **D-16:** FastAPI backend is an **MCP client**: it spawns `price_mcp/server.py` as a subprocess using the `mcp` Python SDK (`mcp>=1.0`) stdio transport, calls `search_products`, and returns the result as the tool response to GLM. Add `mcp` to `requirements.txt`.
 
 ### Backend Module Structure
 - **D-04:** Feature-module layout under `cyber-god/backend/`:
   ```
   cyber-god/backend/
     config.py          ← env var loading (ZHIPU_API_KEY, GLM_MODEL, ALLOWED_ORIGINS)
+    price_mcp/
+      __init__.py
+      server.py        ← local MCP server: search_products tool + catalog data
     tools/
       __init__.py
-      price.py         ← get_mock_price + catalog + PriceLookup interface
+      price.py         ← MCP client wrapper: spawns price_mcp/server.py, calls search_products
       savings.py       ← calculate_savings_impact
     agent/
       __init__.py
@@ -38,7 +42,7 @@ You can curl POST /api/chat with a purchase impulse and receive a GLM-5-powered 
   ```
 
 ### Stream Error Handling
-- **D-05:** If GLM call 1 (stream=False, tool resolution) returns no tool calls: retry ONCE with an explicit system-level instruction appended to messages ("你必须先调用 get_mock_price 和 calculate_savings_impact 工具")
+- **D-05:** If GLM call 1 (stream=False, tool resolution) returns no tool calls: retry ONCE with an explicit system-level instruction appended to messages ("你必须先调用 search_products 和 calculate_savings_impact 工具")
 - **D-06:** If retry still returns no tool calls: emit an in-character error message as a `0:` chunk (e.g., `0:"财神出岁了！天机不可泄露，稍后再来。"\n`) then close the stream normally with `e:` and `d:` lines — do NOT return HTTP 500
 - **D-07:** If GLM call 1 fails entirely (network error, auth error): return HTTP 500 before streaming starts with a JSON error body — this is a hard failure before any stream is opened
 
@@ -55,8 +59,9 @@ You can curl POST /api/chat with a purchase impulse and receive a GLM-5-powered 
 - **D-15:** `GLM_MODEL` env var: `glm-4-flash` for dev (free/fast), `glm-4-5` for prod — never hard-coded
 
 ### Claude's Discretion
-- Exact RMB base prices for each catalog item (should feel realistic but not need to be accurate)
-- Specific ±30% randomization seed/strategy (just `random.uniform(0.7, 1.3) * base`)
+- Exact RMB base prices for each catalog item inside `price_mcp/server.py` (should feel realistic)
+- Specific ±30% randomization strategy (just `random.uniform(0.7, 1.3) * base`)
+- MCP server startup mechanics (stdio transport, subprocess lifecycle management)
 - uvicorn startup command and dev script
 - Exact wording of the retry injection message
 - `requirements.txt` / `pyproject.toml` choice and pinned versions
@@ -100,7 +105,7 @@ You can curl POST /api/chat with a purchase impulse and receive a GLM-5-powered 
 <specifics>
 ## Specific Ideas
 
-- Mock catalog should cover items commonly impulse-purchased by young Chinese consumers: 盲盒, 奶茶, 耳机, 口红, 球鞋, 游戏皮肤/充值, 手机壳, 咖啡, 键盘外设, 网红零食
+- Local MCP server catalog should cover items commonly impulse-purchased by young Chinese consumers: 盲盒, 奶茶, 耳机, 口红, 球鞋, 游戏皮肤/充值, 手机壳, 咖啡, 键盘外设, 网红零食
 - In-character error fallback example: "财神出岁了！天机不可泄露，稍后再来。" — brief, on-brand, doesn't break immersion
 - Internet-roast persona reference: think "真的假的？你是认真的？这都舍得买？" energy — deadpan disbelief rather than lecturing
 
