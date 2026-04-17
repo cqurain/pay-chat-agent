@@ -26,7 +26,12 @@
   2. The `2:` chunk in the stream contains a valid JSON array with `new_savings`, `progress_pct`, and `delta` keys computed from the actual tool calls
   3. The streamed text (0: lines) is in character — 毒舌财神 style, leads with approve or reject, written in Chinese
   4. A preflight OPTIONS request to /api/chat from a different origin returns a 200 with correct CORS headers
-**Plans**: TBD
+**Plans:** 3 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Project scaffold + tools foundation (config, requirements, MCP server, savings calc, MCP client wrapper)
+- [ ] 01-02-PLAN.md — Agent loop + API route (system prompt, two-phase GLM, Vercel SSE, route handler)
+- [ ] 01-03-PLAN.md — End-to-end validation (install deps, start server, curl Phase 1 gate checkpoint)
 
 **Gate before Phase 2**: GLM model string confirmed working in Zhipu console; SSE wire format validated end-to-end with curl before any frontend code is written.
 
@@ -62,11 +67,11 @@
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Backend Core | 0/? | Not started | - |
+| 1. Backend Core | 0/3 | Not started | - |
 | 2. Frontend | 0/? | Not started | - |
 | 3. Deployment | 0/? | Not started | - |
 
 ---
 
 *Roadmap created: 2026-04-18*
-*Last updated: 2026-04-18 after initialization*
+*Last updated: 2026-04-18 — Phase 1 plans created (3 plans, 3 waves)*
