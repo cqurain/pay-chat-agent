@@ -63,7 +63,11 @@ Plans:
   1. `docker compose up -d` in `cyber-god/backend/` builds and starts the FastAPI container on port 8000, reading `ZHIPU_API_KEY`, `GLM_MODEL`, and `ALLOWED_ORIGINS` from the `.env` file — no other setup required
   2. Setting `NEXT_PUBLIC_API_URL` to the Docker host URL and deploying the frontend to Vercel results in a working public demo (chat streams, progress bar updates, no CORS errors in browser console)
   3. The README covers Windows/PowerShell local dev setup, Docker build + push steps, and Vercel frontend deployment in a single linear walkthrough
-**Plans**: TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — Docker packaging files (Dockerfile, docker-compose.yml, .dockerignore, .env.example) + python3 fix in main.py
+- [ ] 03-02-PLAN.md — README.md at repo root + human verification checkpoint for Docker + Vercel deploy
 
 ---
 
@@ -73,9 +77,9 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1. Backend Core | 3/3 | Complete | 2026-04-18 |
 | 2. Frontend | 0/3 | Not started | - |
-| 3. Deployment | 0/? | Not started | - |
+| 3. Deployment | 0/2 | Not started | - |
 
 ---
 
 *Roadmap created: 2026-04-18*
-*Last updated: 2026-04-18 — Phase 2 plans created (3 plans, 3 waves)*
+*Last updated: 2026-04-18 — Phase 3 plans created (2 plans, 2 waves)*
