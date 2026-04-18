@@ -49,9 +49,9 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — Next.js scaffold + Tailwind v4 config + shared lib (storage.ts, types.ts)
-- [ ] 02-02-PLAN.md — Savings panel, progress bar, page.tsx skeleton with useChat body wiring
-- [ ] 02-03-PLAN.md — Chat area, input area, final page.tsx wiring + human verification checkpoint
+- [x] 02-01-PLAN.md — Next.js scaffold + Tailwind v4 config + shared lib (storage.ts, types.ts)
+- [x] 02-02-PLAN.md — Savings panel, progress bar, page.tsx skeleton with useChat body wiring
+- [x] 02-03-PLAN.md — Chat area, input area, final page.tsx wiring + human verification checkpoint
 
 ---
 
