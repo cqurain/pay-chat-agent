@@ -372,22 +372,25 @@ pnpm dev
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Does the Docker host need a public IP?**
    - What we know: The Vercel frontend calls the backend at `NEXT_PUBLIC_API_URL` from the user's browser (not from Vercel's servers). So the browser must be able to reach the Docker host directly.
    - What's unclear: Whether the target deployment server has a public IP or needs a reverse proxy / tunnel.
    - Recommendation: README should note "ensure port 8000 is accessible from the internet" and optionally mention `ngrok http 8000` as a quick demo option.
+   - RESOLVED: Plan 03-02 Task 1 includes a README blockquote warning ("ensure port 8000 is accessible from the internet") and mentions ngrok as a demo tunneling option.
 
 2. **Does the MCP server need `python` in PATH inside the Docker container?**
    - What we know: `main.py` calls `StdioServerParameters(command="python", args=[MCP_SERVER_PATH])` — it spawns a subprocess via the string `"python"`.
    - What's unclear: The `python:3.12-slim` base image may only have `python3` in PATH, not `python`.
    - Recommendation: Either change `command="python3"` in `main.py` or add `RUN ln -s /usr/local/bin/python3 /usr/local/bin/python` in the Dockerfile. Verify by building and running `docker exec ... python --version`.
+   - RESOLVED: Plan 03-01 Task 2 patches `main.py` to use `command="python3"` (cleaner than a symlink; aligns with the slim image's actual PATH).
 
 3. **HTTPS on Docker host?**
    - What we know: Browsers require HTTPS for pages served over HTTPS (Vercel) to make non-localhost requests. A plain `http://IP:8000` backend may be blocked by mixed-content policy.
    - What's unclear: Whether demo users will care (demo context), and whether a TLS solution is in scope.
    - Recommendation: Note in README that for a production demo, the Docker host should have a domain + TLS (e.g., Caddy reverse proxy, Cloudflare tunnel). For local demo only, `http://localhost:8000` works fine.
+   - RESOLVED: Plan 03-02 Task 1 includes a README Gotchas section warning about mixed-content and recommending Caddy or Cloudflare Tunnel for production demos.
 
 ---
 

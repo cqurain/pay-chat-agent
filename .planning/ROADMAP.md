@@ -66,7 +66,7 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — Docker packaging files (Dockerfile, docker-compose.yml, .dockerignore, .env.example) + python3 fix in main.py
+- [x] 03-01-PLAN.md — Docker packaging files (Dockerfile, docker-compose.yml, .dockerignore, .env.example) + python3 fix in main.py
 - [ ] 03-02-PLAN.md — README.md at repo root + human verification checkpoint for Docker + Vercel deploy
 
 ---

@@ -1,0 +1,9 @@
+services:
+  frontend:
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_API_URL: http://129.211.166.43:8000
+    ports:
+      - "3000:3000"
+    restart: unless-stopped

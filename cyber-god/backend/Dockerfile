@@ -10,7 +10,7 @@ WORKDIR /app
 
 # Install dependencies first (layer cache: changes less often than code)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # Copy application code
 COPY . .
