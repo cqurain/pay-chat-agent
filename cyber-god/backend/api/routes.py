@@ -11,6 +11,7 @@ safe_stream() and emitted as in-character SSE — response code is 200 with erro
 This is a documented deviation from the strict D-07 spec (HTTP 500 before stream opens).
 See SUMMARY.md for rationale.
 """
+import asyncio
 import json
 
 from fastapi import APIRouter, Request
@@ -22,6 +23,18 @@ from agent.loop import run_agent_loop
 from config import GLM_MODEL, ZHIPU_API_KEY
 
 router = APIRouter()
+
+
+@router.get("/test-stream")
+async def test_stream():
+    """Quick diagnostic: verifies FastAPI SSE streaming works at all."""
+    async def gen():
+        for i in range(5):
+            yield f'0:{json.dumps(f"chunk {i}")}\n'
+            await asyncio.sleep(0.3)
+        yield 'e:{"finishReason":"stop"}\n'
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"})
 
 
 class Message(BaseModel):
