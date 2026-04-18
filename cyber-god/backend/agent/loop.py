@@ -1,15 +1,12 @@
 """
 Agent loop for 毒舌财神 — direct tool execution + streaming GLM verdict.
 
-Phase 1: call MCP price server and savings calculator directly (no GLM tool-calling,
-         which proved unreliable with tool_choice="auto" on Zhipu models).
-Phase 2: stream=True GLM call with tool results injected as message history,
-         yielding Vercel Data Stream Protocol lines (f:, 0:, 2:, e:, d:).
+Price lookup is now a local sync call (no MCP subprocess).
+GLM receives pre-computed tool results and generates the verdict.
 """
 import json
 from uuid import uuid4
 
-from mcp import ClientSession
 from openai import AsyncOpenAI
 
 from agent.prompt import SYSTEM_PROMPT
@@ -21,7 +18,6 @@ async def run_agent_loop(
     messages: list[dict],
     savings: float,
     target: float,
-    mcp_session: ClientSession,
     glm_client: AsyncOpenAI,
     model: str,
 ):
@@ -29,24 +25,21 @@ async def run_agent_loop(
     Async generator yielding Vercel Data Stream Protocol lines.
 
     Protocol lines emitted (in order):
-        f:{id}          — stream init
+        f:{messageId}   — stream init
         0:{text}        — streamed text chunks (verdict in Chinese)
-        2:[{payload}]   — savings impact payload (array-wrapped JSON, D-13)
+        2:[{payload}]   — savings impact payload (array-wrapped JSON)
         e:{meta}        — finish event
         d:{meta}        — done event
     """
-    # Prepend system prompt to full message history
     full_messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}] + list(messages)
 
-    # --- Phase 1: call tools directly ---
-    # GLM tool_choice="auto" is unreliable — model skips tools despite system prompt.
-    # We call MCP + savings ourselves and inject results as a simulated tool exchange
-    # so Phase 2 GLM sees real data and generates a grounded verdict.
+    # --- Phase 1: call tools locally (sync, no LLM round-trip) ---
     user_query = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
-    price_data = await get_price(user_query, mcp_session)
+    price_data = get_price(user_query)
     resolved_price: float = price_data["price"]
     impact = calculate_savings_impact(resolved_price, savings, target)
 
+    # Inject results as a simulated tool exchange so GLM sees grounded data
     tc_id_price = f"call_{uuid4().hex[:16]}"
     tc_id_impact = f"call_{uuid4().hex[:16]}"
     assistant_msg = {
@@ -74,8 +67,7 @@ async def run_agent_loop(
     ]
     full_messages = full_messages + [assistant_msg] + tool_messages
 
-    # --- Phase 2: streaming verdict ---
-    # No tools passed — GLM generates plain text verdict based on injected tool results.
+    # --- Phase 2: streaming verdict from GLM ---
     response2 = await glm_client.chat.completions.create(
         model=model,
         messages=full_messages,
@@ -100,7 +92,8 @@ async def run_agent_loop(
             prompt_tokens = chunk.usage.prompt_tokens or prompt_tokens
             completion_tokens = chunk.usage.completion_tokens or completion_tokens
 
-    # --- D-13: savings payload on 2: channel (array-wrapped for useChat.data[]) ---
+    # Impact payload for the progress bar flash animation — frontend does NOT
+    # auto-update user savings from this; user manages their savings manually.
     savings_payload = {
         "new_savings": impact["new_savings"],
         "progress_pct": impact["progress"],
@@ -108,7 +101,6 @@ async def run_agent_loop(
     }
     yield f'2:{json.dumps([savings_payload])}\n'
 
-    # --- D-11: finish lines ---
     finish_meta = json.dumps(
         {
             "finishReason": "stop",

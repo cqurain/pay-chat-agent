@@ -1,11 +1,5 @@
 'use client';
 
-/**
- * Root page — single-page chat UI for 赛博财神爷.
- * Plan 02 established savings/progress wiring.
- * Plan 03 adds ChatArea + InputArea to complete the chat experience.
- */
-
 import { useChat } from 'ai/react';
 import { useEffect, useState } from 'react';
 import Header from '@/components/Header';
@@ -13,18 +7,38 @@ import SavingsPanel from '@/components/SavingsPanel';
 import ProgressBar from '@/components/ProgressBar';
 import ChatArea from '@/components/ChatArea';
 import InputArea from '@/components/InputArea';
-import { DEFAULTS } from '@/lib/storage';
+import OnboardingModal from '@/components/OnboardingModal';
+import { DEFAULTS, STORAGE_KEYS } from '@/lib/storage';
 import type { SavingsPayload } from '@/lib/types';
 
 export default function ChatPage() {
-  // --- Savings state (SAVINGS-01, SAVINGS-02) ---
   const [savings, setSavings] = useState<number>(DEFAULTS.SAVINGS);
   const [target, setTarget] = useState<number>(DEFAULTS.TARGET);
-
-  // --- Progress derived from 2: channel payload ---
   const [delta, setDelta] = useState<number | undefined>(undefined);
 
-  // --- useChat hook (CHAT-01, SAVINGS-03) ---
+  // null = not yet determined (SSR), false = needs onboarding, true = ready
+  const [onboarded, setOnboarded] = useState<boolean | null>(null);
+
+  // Restore persisted values and check onboarding status after hydration
+  useEffect(() => {
+    const storedSavings = localStorage.getItem(STORAGE_KEYS.SAVINGS);
+    const storedTarget = localStorage.getItem(STORAGE_KEYS.TARGET);
+    const hasOnboarded = localStorage.getItem(STORAGE_KEYS.HAS_ONBOARDED);
+
+    if (storedSavings !== null) setSavings(parseFloat(storedSavings));
+    if (storedTarget !== null) setTarget(parseFloat(storedTarget));
+    setOnboarded(hasOnboarded === 'true');
+  }, []);
+
+  const handleOnboardingComplete = (s: number, t: number) => {
+    setSavings(s);
+    setTarget(t);
+    localStorage.setItem(STORAGE_KEYS.SAVINGS, String(s));
+    localStorage.setItem(STORAGE_KEYS.TARGET, String(t));
+    localStorage.setItem(STORAGE_KEYS.HAS_ONBOARDED, 'true');
+    setOnboarded(true);
+  };
+
   const {
     messages,
     input,
@@ -37,32 +51,23 @@ export default function ChatPage() {
     data: chatData,
   } = useChat({
     api: `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'}/api/chat`,
-    body: {
-      savings,
-      target,
-    },
+    body: { savings, target },
   });
 
-  // --- Bridge: 2: channel → savings state + progress bar (D-12, PROGRESS-02, PROGRESS-03) ---
+  // Read delta from 2: channel for the flash animation only.
+  // Do NOT update savings state — user manages their savings manually.
   useEffect(() => {
     if (chatData && chatData.length > 0) {
       const raw = chatData[chatData.length - 1] as unknown;
       if (
         raw &&
-        typeof (raw as SavingsPayload).new_savings === 'number' &&
-        !isNaN((raw as SavingsPayload).new_savings) &&
-        typeof (raw as SavingsPayload).progress_pct === 'number' &&
         typeof (raw as SavingsPayload).delta === 'number'
       ) {
-        const payload = raw as SavingsPayload;
-        setSavings(payload.new_savings);
-        setDelta(payload.delta);
-        localStorage.setItem('gsd_savings', String(payload.new_savings));
+        setDelta((raw as SavingsPayload).delta);
       }
     }
   }, [chatData]);
 
-  // --- Submit handler: send user message via useChat.append ---
   const handleSubmit = () => {
     const trimmed = input.trim();
     if (!trimmed || isLoading) return;
@@ -70,45 +75,46 @@ export default function ChatPage() {
     setInput('');
   };
 
-  // --- Example chip click: fill input with example text (D-22) ---
   const handleExampleClick = (text: string) => {
     setInput(text);
   };
 
+  // Don't render until hydration check is done (avoids flicker)
+  if (onboarded === null) return null;
+
   return (
-    <div className="flex flex-col h-screen bg-gray-50 text-gray-900">
-      {/* Fixed header (56px) */}
-      <Header />
+    <>
+      {!onboarded && (
+        <OnboardingModal onComplete={handleOnboardingComplete} />
+      )}
 
-      {/* Savings panel (inputs, ~80px) */}
-      <SavingsPanel
-        savings={savings}
-        target={target}
-        onSavingsChange={setSavings}
-        onTargetChange={setTarget}
-      />
-
-      {/* Progress bar (32px + padding) */}
-      <ProgressBar savings={savings} target={target} delta={delta} />
-
-      {/* Chat area (flex-grow, scrollable) + Input row (fixed at bottom) */}
-      <main className="flex flex-col flex-1 min-h-0">
-        <ChatArea
-          messages={messages}
-          isLoading={isLoading}
-          dataLength={chatData?.length ?? 0}
-          onExampleClick={handleExampleClick}
+      <div className="flex flex-col h-screen bg-gray-50 text-gray-900">
+        <Header />
+        <SavingsPanel
+          savings={savings}
+          target={target}
+          onSavingsChange={setSavings}
+          onTargetChange={setTarget}
         />
-        <InputArea
-          input={input}
-          isLoading={isLoading}
-          error={error}
-          onInputChange={setInput}
-          onSubmit={handleSubmit}
-          onStop={stop}
-          onRetry={reload}
-        />
-      </main>
-    </div>
+        <ProgressBar savings={savings} target={target} delta={delta} />
+        <main className="flex flex-col flex-1 min-h-0">
+          <ChatArea
+            messages={messages}
+            isLoading={isLoading}
+            dataLength={chatData?.length ?? 0}
+            onExampleClick={handleExampleClick}
+          />
+          <InputArea
+            input={input}
+            isLoading={isLoading}
+            error={error}
+            onInputChange={setInput}
+            onSubmit={handleSubmit}
+            onStop={stop}
+            onRetry={reload}
+          />
+        </main>
+      </div>
+    </>
   );
 }

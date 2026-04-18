@@ -1,10 +1,11 @@
 /**
- * localStorage keys and default values for savings context (D-08, SAVINGS-01, SAVINGS-02).
+ * localStorage keys and default values for savings context.
  * Keys are stable — changing them would lose user data.
  */
 export const STORAGE_KEYS = {
   SAVINGS: 'gsd_savings',
   TARGET: 'gsd_target',
+  HAS_ONBOARDED: 'gsd_onboarded',
 } as const;
 
 export const DEFAULTS = {

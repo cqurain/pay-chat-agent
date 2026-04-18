@@ -14,7 +14,7 @@ See SUMMARY.md for rationale.
 import asyncio
 import json
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from openai import AsyncOpenAI
 from pydantic import BaseModel
@@ -49,7 +49,7 @@ class ChatRequest(BaseModel):
 
 
 @router.post("/chat")
-async def chat(body: ChatRequest, request: Request):
+async def chat(body: ChatRequest):
     """
     POST /api/chat
 
@@ -57,8 +57,6 @@ async def chat(body: ChatRequest, request: Request):
     Response: text/event-stream with Vercel Data Stream Protocol
     Headers: x-vercel-ai-data-stream: v1, X-Accel-Buffering: no
     """
-    mcp_session = request.app.state.mcp_session
-
     glm_client = AsyncOpenAI(
         base_url="https://open.bigmodel.cn/api/paas/v4",
         api_key=ZHIPU_API_KEY,
@@ -70,7 +68,6 @@ async def chat(body: ChatRequest, request: Request):
         messages=messages,
         savings=body.savings,
         target=body.target,
-        mcp_session=mcp_session,
         glm_client=glm_client,
         model=GLM_MODEL,
     )
