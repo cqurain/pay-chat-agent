@@ -29,9 +29,9 @@
 **Plans:** 3 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Project scaffold + tools foundation (config, requirements, MCP server, savings calc, MCP client wrapper)
-- [ ] 01-02-PLAN.md — Agent loop + API route (system prompt, two-phase GLM, Vercel SSE, route handler)
-- [ ] 01-03-PLAN.md — End-to-end validation (install deps, start server, curl Phase 1 gate checkpoint)
+- [x] 01-01-PLAN.md — Project scaffold + tools foundation (config, requirements, MCP server, savings calc, MCP client wrapper)
+- [x] 01-02-PLAN.md — Agent loop + API route (system prompt, two-phase GLM, Vercel SSE, route handler)
+- [x] 01-03-PLAN.md — End-to-end validation (install deps, start server, curl Phase 1 gate checkpoint)
 
 **Gate before Phase 2**: GLM model string confirmed working in Zhipu console; SSE wire format validated end-to-end with curl before any frontend code is written.
 

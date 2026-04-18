@@ -1,3 +1,17 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: unknown
+last_updated: "2026-04-17T18:38:54.230Z"
+progress:
+  total_phases: 3
+  completed_phases: 0
+  total_plans: 3
+  completed_plans: 0
+  percent: 0
+---
+
 # Project State: Cyber God of Wealth（赛博财神爷）
 
 *This file is the single source of truth for project position. Update at every phase transition and plan completion.*
@@ -17,11 +31,14 @@
 
 ## Current Position
 
+Phase: 01 (backend-core) — EXECUTING
+Plan: 1 of 3
 **Current Phase**: 1 — Backend Core
 **Current Plan**: None started
 **Status**: Not started
 
 **Progress**:
+
 ```
 Phase 1 [          ] 0%   Backend Core
 Phase 2 [          ] 0%   Frontend
@@ -60,6 +77,7 @@ Phase 3 [          ] 0%   Deployment
 | Progress bar payload | Rides 2: channel (array-wrapped JSON); read via onData callback, not onFinish |
 
 ### Phase 1 Gate (must be TRUE before Phase 2 starts)
+
 - [ ] GLM model string confirmed working in Zhipu console
 - [ ] SSE wire format validated end-to-end with `curl -N`
 
@@ -79,9 +97,11 @@ Phase 3 [          ] 0%   Deployment
 4. CORS wildcard is fine for dev; must use explicit `ALLOWED_ORIGINS` env var in production Docker deployment
 
 ### Todos
+
 - (none yet — project just initialized)
 
 ### Blockers
+
 - (none)
 
 ---
