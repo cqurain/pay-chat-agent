@@ -83,7 +83,7 @@ async def run_agent_loop(
     )
 
     msg_id = str(uuid4())
-    yield f'f:{json.dumps({"id": msg_id})}\n'
+    yield f'f:{json.dumps({"messageId": msg_id})}\n'
 
     prompt_tokens = 0
     completion_tokens = 0
