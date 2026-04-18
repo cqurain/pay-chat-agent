@@ -21,7 +21,7 @@ async def lifespan(app: FastAPI):
     await exit_stack.__aenter__()
 
     server_params = StdioServerParameters(
-        command="python",
+        command="python3",
         args=[MCP_SERVER_PATH],
         env=None,
     )
