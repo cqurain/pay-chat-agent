@@ -76,7 +76,7 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-gray-950 text-gray-100">
+    <div className="flex flex-col h-screen bg-gray-50 text-gray-900">
       {/* Fixed header (56px) */}
       <Header />
 

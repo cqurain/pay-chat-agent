@@ -29,6 +29,6 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgb(55, 65, 81); /* gray-700 */
+  background: rgb(209, 213, 219); /* gray-300 */
   border-radius: 2px;
 }

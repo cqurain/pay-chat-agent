@@ -84,12 +84,12 @@ export default function ChatArea({
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6">
         <div className="text-5xl select-none">🧧</div>
-        <p className="text-lg text-gray-200 text-center">
+        <p className="text-lg text-gray-700 text-center">
           财神在此，请问何处要花冤枉钱？
         </p>
         <button
           onClick={() => onExampleClick('我想花 800 买个盲盒')}
-          className="text-gray-400 hover:text-gray-300 cursor-pointer text-sm border border-gray-700 hover:border-gray-500 rounded-full px-4 py-2 transition-colors"
+          className="text-gray-500 hover:text-gray-700 cursor-pointer text-sm border border-gray-300 hover:border-gray-400 rounded-full px-4 py-2 transition-colors"
         >
           试试：我想花 800 买个盲盒
         </button>
@@ -107,7 +107,7 @@ export default function ChatArea({
           return (
             <div key={msg.id} className="flex flex-col items-end gap-1">
               <span className="text-xs text-gray-400">用户</span>
-              <div className="bg-gray-700 text-gray-100 px-4 py-3 rounded-lg max-w-2xl">
+              <div className="bg-yellow-50 text-gray-900 px-4 py-3 rounded-lg max-w-2xl border border-yellow-200">
                 {msg.content}
               </div>
             </div>
@@ -121,7 +121,7 @@ export default function ChatArea({
             <div key={msg.id} className="flex flex-col items-start gap-1">
               <span className="text-xs text-gray-400">财神</span>
               <div
-                className={`bg-gray-800 text-gray-100 px-4 py-3 rounded-lg max-w-2xl ${verdictBorder}`}
+                className={`bg-gray-50 text-gray-900 px-4 py-3 rounded-lg max-w-2xl border border-gray-200 ${verdictBorder}`}
               >
                 {/* Tool-status indicator: shown when content is empty/minimal and loading */}
                 <ToolStatus

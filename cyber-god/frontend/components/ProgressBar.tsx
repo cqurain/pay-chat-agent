@@ -34,9 +34,9 @@ export default function ProgressBar({ savings, target, delta }: ProgressBarProps
   const displayPct = Math.round(pct);
 
   return (
-    <div className="px-6 py-2 shrink-0 bg-gray-950">
+    <div className="px-6 py-2 shrink-0 bg-white border-b border-gray-200">
       {/* Track */}
-      <div className="w-full h-8 bg-gray-800 rounded overflow-hidden relative">
+      <div className="w-full h-8 bg-gray-200 rounded overflow-hidden relative">
         {/* Fill — transitions width smoothly (D-09) */}
         <div
           className={`
@@ -57,7 +57,7 @@ export default function ProgressBar({ savings, target, delta }: ProgressBarProps
         </div>
         {/* Show pct outside bar when fill is too narrow */}
         {displayPct <= 5 && (
-          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-sm font-semibold text-gray-400">
+          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-sm font-semibold text-gray-500">
             {displayPct}%
           </span>
         )}
