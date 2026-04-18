@@ -1,12 +1,13 @@
 """
 Agent loop for 毒舌财神 — direct tool execution + streaming GLM verdict.
 
-Price lookup is now a local sync call (no MCP subprocess).
-GLM receives pre-computed tool results and generates the verdict.
+Phase 1: call MCP price server and savings calculator directly (no GLM tool-calling).
+Phase 2: stream=True GLM call with tool results injected as message history.
 """
 import json
 from uuid import uuid4
 
+from mcp import ClientSession
 from openai import AsyncOpenAI
 
 from agent.prompt import SYSTEM_PROMPT
@@ -18,6 +19,7 @@ async def run_agent_loop(
     messages: list[dict],
     savings: float,
     target: float,
+    mcp_session: ClientSession,
     glm_client: AsyncOpenAI,
     model: str,
 ):
@@ -33,9 +35,9 @@ async def run_agent_loop(
     """
     full_messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}] + list(messages)
 
-    # --- Phase 1: call tools locally (sync, no LLM round-trip) ---
+    # --- Phase 1: call tools via MCP + local savings calc ---
     user_query = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
-    price_data = get_price(user_query)
+    price_data = await get_price(user_query, mcp_session)
     resolved_price: float = price_data["price"]
     impact = calculate_savings_impact(resolved_price, savings, target)
 
@@ -92,8 +94,7 @@ async def run_agent_loop(
             prompt_tokens = chunk.usage.prompt_tokens or prompt_tokens
             completion_tokens = chunk.usage.completion_tokens or completion_tokens
 
-    # Impact payload for the progress bar flash animation — frontend does NOT
-    # auto-update user savings from this; user manages their savings manually.
+    # Impact payload for progress bar flash — frontend does NOT auto-update user savings
     savings_payload = {
         "new_savings": impact["new_savings"],
         "progress_pct": impact["progress"],
