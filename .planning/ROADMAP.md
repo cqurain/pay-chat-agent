@@ -46,8 +46,12 @@ Plans:
   2. The savings progress bar updates its fill percentage and triggers a red flash animation when the `2:` data chunk arrives (purchase approved but delta is negative)
   3. Editing the 存款目标 or 已存金额 inputs and refreshing the page restores the same values (localStorage persistence); the values are included in every chat request body
   4. During streaming the input is disabled and a stop button is visible; after streaming completes the input re-enables
-**Plans**: TBD
-**UI hint**: yes
+**Plans:** 3 plans
+
+Plans:
+- [ ] 02-01-PLAN.md — Next.js scaffold + Tailwind v4 config + shared lib (storage.ts, types.ts)
+- [ ] 02-02-PLAN.md — Savings panel, progress bar, page.tsx skeleton with useChat body wiring
+- [ ] 02-03-PLAN.md — Chat area, input area, final page.tsx wiring + human verification checkpoint
 
 ---
 
@@ -67,11 +71,11 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Backend Core | 0/3 | Not started | - |
-| 2. Frontend | 0/? | Not started | - |
+| 1. Backend Core | 3/3 | Complete | 2026-04-18 |
+| 2. Frontend | 0/3 | Not started | - |
 | 3. Deployment | 0/? | Not started | - |
 
 ---
 
 *Roadmap created: 2026-04-18*
-*Last updated: 2026-04-18 — Phase 1 plans created (3 plans, 3 waves)*
+*Last updated: 2026-04-18 — Phase 2 plans created (3 plans, 3 waves)*
