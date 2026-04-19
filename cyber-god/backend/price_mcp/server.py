@@ -13,7 +13,6 @@ import asyncio
 import json
 import os
 import random
-import re
 import statistics
 from concurrent.futures import ThreadPoolExecutor
 
@@ -21,14 +20,14 @@ from ddgs import DDGS
 from mcp import types
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-
-_TAVILY_API_KEY: str | None = os.getenv("TAVILY_API_KEY")
+from openai import AsyncOpenAI
 
 server = Server("price-mcp")
 
-_PRICE_RE = re.compile(
-    r"[¥￥]\s*(\d{1,6}(?:[.,]\d{1,2})?)"
-    r"|(\d{1,6}(?:\.\d{1,2})?)\s*元"
+_TAVILY_API_KEY: str | None = os.getenv("TAVILY_API_KEY")
+_glm_client = AsyncOpenAI(
+    api_key=os.getenv("ZHIPU_API_KEY", ""),
+    base_url="https://open.bigmodel.cn/api/paas/v4/",
 )
 
 # Market reference prices (CNY): (min, typical, max)
@@ -92,26 +91,14 @@ def _catalog_lookup(query: str) -> tuple[str, tuple[float, float, float]] | None
     return (best_key, CATALOG[best_key]) if best_key else None
 
 
-
 def _ddgs_search_sync(keyword: str) -> list[dict]:
     try:
         with DDGS() as d:
             results = list(d.text(f"{keyword} 价格", region="cn-zh", max_results=6))
-        out: list[dict] = []
-        for r in results:
-            text = r.get("body", "") + " " + r.get("title", "")
-            url = r.get("href", "")
-            platform = _infer_platform(url)
-            for m in _PRICE_RE.finditer(text):
-                raw = (m.group(1) or m.group(2) or "").replace(",", "")
-                try:
-                    price = float(raw)
-                    if 10 <= price <= 100_000:
-                        out.append({"price": price, "platform": platform, "url": url})
-                        break  # one price per result
-                except ValueError:
-                    pass
-        return out
+        return [
+            {"text": (r.get("body", "") + " " + r.get("title", "")).strip(), "url": r.get("href", "")}
+            for r in results
+        ]
     except Exception:
         return []
 
@@ -123,21 +110,10 @@ def _tavily_search_sync(keyword: str) -> list[dict]:
         from tavily import TavilyClient
         client = TavilyClient(api_key=_TAVILY_API_KEY)
         resp = client.search(f"{keyword} 价格", max_results=5)
-        out: list[dict] = []
-        for r in resp.get("results", []):
-            text = r.get("content", "") + " " + r.get("title", "")
-            url = r.get("url", "")
-            platform = _infer_platform(url)
-            for m in _PRICE_RE.finditer(text):
-                raw = (m.group(1) or m.group(2) or "").replace(",", "")
-                try:
-                    price = float(raw)
-                    if 10 <= price <= 100_000:
-                        out.append({"price": price, "platform": platform, "url": url})
-                        break
-                except ValueError:
-                    pass
-        return out
+        return [
+            {"text": (r.get("content", "") + " " + r.get("title", "")).strip(), "url": r.get("url", "")}
+            for r in resp.get("results", [])
+        ]
     except Exception:
         return []
 
@@ -154,11 +130,59 @@ async def _tavily_search(keyword: str) -> list[dict]:
         return await loop.run_in_executor(pool, _tavily_search_sync, keyword)
 
 
+async def _llm_extract_prices(snippets: list[dict], client: AsyncOpenAI) -> list[dict]:
+    """Use glm-4-flash JSON mode to extract prices from raw search snippets."""
+    if not snippets:
+        return []
+    snippet_text = "\n".join(
+        f"[{i+1}] url={s['url']}\n{s['text'][:300]}"
+        for i, s in enumerate(snippets)
+    )
+    try:
+        resp = await client.chat.completions.create(
+            model="glm-4-flash",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "从以下搜索结果中提取商品价格，以JSON格式返回，格式：\n"
+                        '{"prices": [{"price": 数字, "platform": "平台名", "url": "来源URL"}]}\n'
+                        "price必须是数字（不含符号），platform从URL推断，最多返回5条。\n"
+                        "如果找不到价格，返回 {\"prices\": []}。"
+                    ),
+                },
+                {"role": "user", "content": snippet_text},
+            ],
+            response_format={"type": "json_object"},
+            stream=False,
+        )
+        content = resp.choices[0].message.content or "{}"
+        data = json.loads(content)
+        raw_prices = data.get("prices", [])
+        out: list[dict] = []
+        for item in raw_prices:
+            try:
+                price = float(item["price"])
+                if 10 <= price <= 100_000:
+                    out.append({
+                        "price": price,
+                        "platform": str(item.get("platform", _infer_platform(str(item.get("url", ""))))),
+                        "url": str(item.get("url", "")),
+                    })
+            except (KeyError, ValueError, TypeError):
+                pass
+        return out
+    except Exception:
+        return []
+
+
 async def _resolve_price(keyword: str) -> dict:
-    # 1. Tavily first, DDGS second
-    sources: list[dict] = await _tavily_search(keyword)
-    if not sources:
-        sources = await _ddgs_search(keyword)
+    # 1. Collect raw snippets: Tavily first, DDGS second
+    raw_snippets: list[dict] = await _tavily_search(keyword)
+    if not raw_snippets:
+        raw_snippets = await _ddgs_search(keyword)
+
+    sources: list[dict] = await _llm_extract_prices(raw_snippets, _glm_client)
 
     if sources:
         # Dedup: per platform keep lowest price
