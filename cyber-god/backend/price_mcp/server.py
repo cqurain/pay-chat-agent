@@ -13,6 +13,7 @@ import asyncio
 import json
 import os
 import random
+import re
 import statistics
 from concurrent.futures import ThreadPoolExecutor
 
@@ -130,6 +131,29 @@ async def _tavily_search(keyword: str) -> list[dict]:
         return await loop.run_in_executor(pool, _tavily_search_sync, keyword)
 
 
+_PRICE_RE = re.compile(
+    r"[¥￥]\s*(\d{1,6}(?:[.,]\d{1,2})?)"
+    r"|(\d{1,6}(?:\.\d{1,2})?)\s*元"
+)
+
+
+def _regex_extract_prices(snippets: list[dict]) -> list[dict]:
+    """Fallback: extract prices via regex when LLM returns nothing (e.g. garbled encoding)."""
+    out: list[dict] = []
+    for s in snippets:
+        url = s.get("url", "")
+        for m in _PRICE_RE.finditer(s.get("text", "")):
+            raw = (m.group(1) or m.group(2) or "").replace(",", "")
+            try:
+                price = float(raw)
+                if 10 <= price <= 100_000:
+                    out.append({"price": price, "platform": _infer_platform(url), "url": url})
+                    break
+            except ValueError:
+                pass
+    return out
+
+
 async def _llm_extract_prices(snippets: list[dict], client: AsyncOpenAI) -> list[dict]:
     """Use glm-4-flash JSON mode to extract prices from raw search snippets."""
     if not snippets:
@@ -183,6 +207,8 @@ async def _resolve_price(keyword: str) -> dict:
         raw_snippets = await _ddgs_search(keyword)
 
     sources: list[dict] = await _llm_extract_prices(raw_snippets, _glm_client)
+    if not sources and raw_snippets:
+        sources = _regex_extract_prices(raw_snippets)
 
     if sources:
         # Dedup: per platform keep lowest price
