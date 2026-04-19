@@ -108,12 +108,13 @@ Phase 3 [██████████] 100%  Deployment
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260419-nlk | 实现全部5项改动：LLM意图提取、知识截止修复、价格渠道来源、人设切换、Tavily优先 | 2026-04-19 | db88194 | [260419-nlk-5-llm-tavily](.planning/quick/260419-nlk-5-llm-tavily/) |
+| 260419-sw7 | 重构 loop.py 和 server.py：按职责拆函数，LLM 价格提取替换正则 | 2026-04-19 | 9a631a4 | [260419-sw7-loop-py-server-py-loop-py-resolve-price-](.planning/quick/260419-sw7-loop-py-server-py-loop-py-resolve-price-/) |
 
 ---
 
 ## Session Continuity
 
-**Last session**: 2026-04-19 — Quick task 260419-nlk complete: 5 agent improvements (LLM intent extraction, knowledge cutoff fix, price source channels, persona toggle, Tavily-first)
+**Last session**: 2026-04-19 — Quick task 260419-sw7 complete: refactor loop.py + server.py by responsibility, LLM price extraction replaces regex
 **Next action**: v1.0 milestone complete — run `/gsd-complete-milestone` to archive
 
 ---
