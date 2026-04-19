@@ -38,10 +38,18 @@ class Message(BaseModel):
     content: str
 
 
+class TransactionRecord(BaseModel):
+    type: str        # "deposit" | "withdraw"
+    amount: float
+    timestamp: str   # ISO 8601
+
+
 class ChatRequest(BaseModel):
     messages: list[Message]
     savings: float = 0.0
     target: float = 10000.0
+    transactions: list[TransactionRecord] = []
+    persona: str = "snarky"
 
 
 @router.post("/chat")
@@ -54,6 +62,7 @@ async def chat(body: ChatRequest, request: Request):
     )
 
     messages = [m.model_dump() for m in body.messages]
+    transactions = [t.model_dump() for t in body.transactions]
 
     gen = run_agent_loop(
         messages=messages,
@@ -62,6 +71,8 @@ async def chat(body: ChatRequest, request: Request):
         mcp_session=mcp_session,
         glm_client=glm_client,
         model=GLM_MODEL,
+        transactions=transactions,
+        persona=body.persona,
     )
 
     async def safe_stream():
