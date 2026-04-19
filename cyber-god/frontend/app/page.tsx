@@ -8,18 +8,21 @@ import ProgressBar from '@/components/ProgressBar';
 import ChatArea from '@/components/ChatArea';
 import InputArea from '@/components/InputArea';
 import OnboardingModal from '@/components/OnboardingModal';
-import { DEFAULTS, STORAGE_KEYS } from '@/lib/storage';
-import type { SavingsPayload } from '@/lib/types';
+import TransactionSidebar from '@/components/TransactionSidebar';
+import { DEFAULTS, STORAGE_KEYS, loadTransactions, saveTransaction, getPersona, setPersona } from '@/lib/storage';
+import type { SavingsPayload, TransactionRecord, Persona } from '@/lib/types';
 
 export default function ChatPage() {
   const [savings, setSavings] = useState<number>(DEFAULTS.SAVINGS);
   const [target, setTarget] = useState<number>(DEFAULTS.TARGET);
   const [delta, setDelta] = useState<number | undefined>(undefined);
+  const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [persona, setPersonaState] = useState<Persona>('snarky');
 
-  // null = not yet determined (SSR), false = needs onboarding, true = ready
+  // null = hydrating, false = needs onboarding, true = ready
   const [onboarded, setOnboarded] = useState<boolean | null>(null);
 
-  // Restore persisted values and check onboarding status after hydration
   useEffect(() => {
     const storedSavings = localStorage.getItem(STORAGE_KEYS.SAVINGS);
     const storedTarget = localStorage.getItem(STORAGE_KEYS.TARGET);
@@ -27,6 +30,8 @@ export default function ChatPage() {
 
     if (storedSavings !== null) setSavings(parseFloat(storedSavings));
     if (storedTarget !== null) setTarget(parseFloat(storedTarget));
+    setTransactions(loadTransactions());
+    setPersonaState(getPersona());
     setOnboarded(hasOnboarded === 'true');
   }, []);
 
@@ -37,6 +42,16 @@ export default function ChatPage() {
     localStorage.setItem(STORAGE_KEYS.TARGET, String(t));
     localStorage.setItem(STORAGE_KEYS.HAS_ONBOARDED, 'true');
     setOnboarded(true);
+  };
+
+  const handleAddTransaction = (type: 'deposit' | 'withdraw', amount: number) => {
+    const record = saveTransaction({ type, amount, timestamp: new Date().toISOString() });
+    setTransactions((prev) => [record, ...prev].slice(0, 90));
+  };
+
+  const handlePersonaChange = (p: Persona) => {
+    setPersonaState(p);
+    setPersona(p);
   };
 
   const {
@@ -51,22 +66,18 @@ export default function ChatPage() {
     data: chatData,
   } = useChat({
     api: `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'}/api/chat`,
-    body: { savings, target },
+    body: { savings, target, transactions: transactions.slice(0, 30), persona },
   });
 
-  // Read delta from 2: channel for the flash animation only.
-  // Do NOT update savings state — user manages their savings manually.
+  const typedChatData = (chatData ?? []) as unknown as SavingsPayload[];
+
+  // Keep delta in sync for ProgressBar flash animation
   useEffect(() => {
-    if (chatData && chatData.length > 0) {
-      const raw = chatData[chatData.length - 1] as unknown;
-      if (
-        raw &&
-        typeof (raw as SavingsPayload).delta === 'number'
-      ) {
-        setDelta((raw as SavingsPayload).delta);
-      }
+    if (typedChatData.length > 0) {
+      const last = typedChatData[typedChatData.length - 1];
+      if (typeof last?.delta === 'number') setDelta(last.delta);
     }
-  }, [chatData]);
+  }, [chatData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSubmit = () => {
     const trimmed = input.trim();
@@ -75,34 +86,39 @@ export default function ChatPage() {
     setInput('');
   };
 
-  const handleExampleClick = (text: string) => {
-    setInput(text);
-  };
-
-  // Don't render until hydration check is done (avoids flicker)
   if (onboarded === null) return null;
 
   return (
     <>
-      {!onboarded && (
-        <OnboardingModal onComplete={handleOnboardingComplete} />
-      )}
+      {!onboarded && <OnboardingModal onComplete={handleOnboardingComplete} />}
+
+      <TransactionSidebar
+        open={sidebarOpen}
+        transactions={transactions}
+        onClose={() => setSidebarOpen(false)}
+      />
 
       <div className="flex flex-col h-screen bg-gray-50 text-gray-900">
-        <Header />
+        <Header
+          onToggleSidebar={() => setSidebarOpen((o) => !o)}
+          persona={persona}
+          onPersonaChange={handlePersonaChange}
+        />
         <SavingsPanel
           savings={savings}
           target={target}
           onSavingsChange={setSavings}
           onTargetChange={setTarget}
+          onAddTransaction={handleAddTransaction}
         />
         <ProgressBar savings={savings} target={target} delta={delta} />
         <main className="flex flex-col flex-1 min-h-0">
           <ChatArea
             messages={messages}
             isLoading={isLoading}
-            dataLength={chatData?.length ?? 0}
-            onExampleClick={handleExampleClick}
+            chatData={typedChatData}
+            target={target}
+            onExampleClick={setInput}
           />
           <InputArea
             input={input}
