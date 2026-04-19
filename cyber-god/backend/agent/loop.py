@@ -16,6 +16,63 @@ from agent.prompt import build_system_prompt
 from tools.price import get_price
 from tools.savings import calculate_savings_impact
 
+_MODEL_CTX_LIMIT = 131_072   # GLM 128 K token window
+_COMPRESS_THRESHOLD = 0.80
+_COMPRESS_KEEP_RECENT = 6    # messages kept verbatim at the tail
+
+
+def _estimate_tokens(messages: list[dict]) -> int:
+    total = 0
+    for m in messages:
+        content = m.get("content") or ""
+        if isinstance(content, str):
+            total += len(content) // 2 + 4
+        if m.get("tool_calls"):
+            total += len(json.dumps(m["tool_calls"])) // 2
+    return total
+
+
+async def _compress_history(messages: list[dict], glm_client: AsyncOpenAI) -> list[dict]:
+    """
+    Summarize old messages into a single system note; keep the most recent
+    _COMPRESS_KEEP_RECENT messages verbatim.  Called only when token estimate
+    exceeds the compression threshold.
+    """
+    if len(messages) <= _COMPRESS_KEEP_RECENT:
+        return messages
+
+    old = messages[:-_COMPRESS_KEEP_RECENT]
+    recent = messages[-_COMPRESS_KEEP_RECENT:]
+
+    lines = []
+    for m in old:
+        label = "用户" if m["role"] == "user" else "财神"
+        text = m.get("content") or ""
+        if text:
+            lines.append(f"{label}：{text}")
+
+    try:
+        resp = await glm_client.chat.completions.create(
+            model="glm-4-flash",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "请将以下对话历史压缩成简洁摘要（100字以内），"
+                        "重点保留：用户的消费意图、财神的判断结论、涉及金额与储蓄变化。"
+                        "直接输出摘要，不加任何前缀。"
+                    ),
+                },
+                {"role": "user", "content": "\n".join(lines)},
+            ],
+            stream=False,
+        )
+        summary = (resp.choices[0].message.content or "").strip()
+    except Exception:
+        summary = f"（{len(old)} 条历史对话已压缩）"
+
+    return [{"role": "system", "content": f"[早期对话摘要] {summary}"}] + recent
+
 
 def _analyze_transactions(transactions: list[dict]) -> dict:
     """
@@ -81,9 +138,10 @@ def _analyze_transactions(transactions: list[dict]) -> dict:
 
 async def _extract_intent(user_query: str, glm_client: AsyncOpenAI) -> dict:
     """
-    Phase 0: Use glm-4-flash with JSON mode to extract product name and stated price.
-    Returns {"product": str, "stated_price": float | None}.
-    Falls back gracefully on any error.
+    Phase 0: Use glm-4-flash with JSON mode to extract product name, stated price,
+    and whether the message expresses a purchase intent.
+    Returns {"product": str, "stated_price": float | None, "is_purchase": bool}.
+    Falls back gracefully on any error (defaults to is_purchase=True to avoid missed verdicts).
     """
     try:
         resp = await glm_client.chat.completions.create(
@@ -92,8 +150,9 @@ async def _extract_intent(user_query: str, glm_client: AsyncOpenAI) -> dict:
                 {
                     "role": "system",
                     "content": (
-                        "从用户的消费意图中提取信息，以JSON格式返回，格式如下：\n"
-                        '{"product": "商品名称（简洁，不含价格）", "stated_price": 数字或null}\n'
+                        "从用户消息中提取信息，以JSON格式返回，格式如下：\n"
+                        '{"product": "商品名称（简洁，不含价格）", "stated_price": 数字或null, "is_purchase": true或false}\n'
+                        "is_purchase: 用户是否在表达购买/消费/花钱的意愿（true），还是在闲聊/问候/提问（false）。\n"
                         "stated_price 仅在用户明确提及金额时填写，否则为 null。"
                     ),
                 },
@@ -108,46 +167,22 @@ async def _extract_intent(user_query: str, glm_client: AsyncOpenAI) -> dict:
         stated_price = data.get("stated_price")
         if stated_price is not None:
             stated_price = float(stated_price)
-        return {"product": product, "stated_price": stated_price}
+        is_purchase = bool(data.get("is_purchase", True))
+        return {"product": product, "stated_price": stated_price, "is_purchase": is_purchase}
     except Exception:
-        return {"product": user_query[:30], "stated_price": None}
+        return {"product": user_query[:30], "stated_price": None, "is_purchase": True}
 
 
-async def run_agent_loop(
-    messages: list[dict],
-    savings: float,
-    target: float,
-    mcp_session: ClientSession,
-    glm_client: AsyncOpenAI,
-    model: str,
-    transactions: list[dict] | None = None,
-    persona: str = "snarky",
-):
+async def _resolve_price(intent: dict, mcp_session: ClientSession) -> dict:
     """
-    Async generator yielding Vercel Data Stream Protocol lines.
-
-    Protocol lines emitted (in order):
-        f:{messageId}   — stream init
-        0:{text}        — streamed text chunks
-        2:[{payload}]   — price + savings impact payload
-        e:{meta}        — finish event
-        d:{meta}        — done event
+    Resolve the price for the purchase intent.
+    If user stated a price, return it directly without MCP call.
+    Otherwise delegate to get_price via MCP.
     """
-    msg_id = str(uuid4())
-    yield f'f:{json.dumps({"messageId": msg_id})}\n'
-
-    full_messages: list[dict] = [{"role": "system", "content": build_system_prompt(persona)}] + list(messages)
-    user_query = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
-
-    # ── Phase 0: LLM intent extraction ───────────────────────────────────
-    intent = await _extract_intent(user_query, glm_client)
-    product_keyword = intent["product"]
     stated_price = intent["stated_price"]
-
-    # ── Phase 1: resolve price + savings impact + tx analysis ────────────
     if stated_price is not None:
-        price_data = {
-            "name": product_keyword,
+        return {
+            "name": intent["product"],
             "price": stated_price,
             "price_min": stated_price,
             "price_max": stated_price,
@@ -156,28 +191,26 @@ async def run_agent_loop(
             "currency": "CNY",
             "sources": [],
         }
-    else:
-        price_data = await get_price(product_keyword, mcp_session)
+    return await get_price(intent["product"], mcp_session)
 
+
+def _build_price_context(price_data: dict) -> str:
+    """
+    Build the natural-language price context string injected into GLM's tool history.
+    """
     confidence = price_data.get("confidence", "unknown")
     resolved_price: float = price_data.get("price", 0.0)
 
-    impact = calculate_savings_impact(resolved_price, savings, target)
-    tx_analysis = _analyze_transactions(transactions or [])
-
-    # Build a rich context string for GLM
     if confidence == "unknown":
-        price_context = "价格未知（搜索失败），请用毒舌角色语气追问用户这个东西到底多少钱。"
+        return "价格未知（搜索失败），请用毒舌角色语气追问用户这个东西到底多少钱。"
     elif confidence == "user_stated":
-        price_context = (
-            f"用户自己说的价格：¥{resolved_price:.0f}，直接用这个数字。"
-        )
+        return f"用户自己说的价格：¥{resolved_price:.0f}，直接用这个数字。"
     else:
         fetched_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         source_names = "、".join(
             {s["platform"] for s in price_data.get("sources", [])}
         ) or price_data.get("source", "网络搜索")
-        price_context = (
+        return (
             f"市场参考价（{confidence}）：{price_data.get('name', '')} "
             f"¥{price_data.get('price_min', resolved_price):.0f}"
             f"～¥{price_data.get('price_max', resolved_price):.0f}，"
@@ -186,7 +219,18 @@ async def run_agent_loop(
             f"此数据来自实时爬取，优先级高于训练知识，请以此数字为准。"
         )
 
-    tool_context = {
+
+def _build_tool_context(
+    price_context: str,
+    savings: float,
+    target: float,
+    impact: dict,
+    tx_analysis: dict,
+) -> dict:
+    """
+    Assemble the tool result dict that gets injected as a synthetic tool exchange.
+    """
+    return {
         "price_info": price_context,
         "savings_impact": {
             "current_savings": savings,
@@ -199,9 +243,18 @@ async def run_agent_loop(
         "transaction_analysis": tx_analysis["summary"],
     }
 
-    # Inject as synthetic tool exchange so GLM sees grounded data
+
+def _inject_tool_exchange(
+    messages: list[dict],
+    tool_context: dict,
+    user_query: str,
+) -> list[dict]:
+    """
+    Append a synthetic assistant tool_call + tool result pair to the message list.
+    Does NOT mutate the input list.
+    """
     tc_id = f"call_{uuid4().hex[:16]}"
-    full_messages += [
+    return messages + [
         {
             "role": "assistant",
             "content": None,
@@ -223,9 +276,29 @@ async def run_agent_loop(
         },
     ]
 
-    # ── Phase 2: stream GLM verdict ───────────────────────────────────────
-    # Emit price+impact payload so frontend renders the card before text starts
-    savings_payload = {
+
+def _build_no_intent_sentinel(savings: float, target: float) -> dict:
+    """Sentinel payload emitted on the 2: channel when there is no purchase intent."""
+    return {
+        "confidence": "no_intent",
+        "new_savings": savings,
+        "progress_pct": round(savings / target * 100, 1) if target else 0,
+        "delta": 0,
+        "product_name": "",
+        "price_found": 0,
+        "price_min": 0,
+        "price_max": 0,
+        "source": "",
+        "sources": [],
+    }
+
+
+def _build_savings_payload(price_data: dict, impact: dict) -> dict:
+    """
+    Build the 2: channel payload dict sent to the frontend before the verdict stream.
+    """
+    resolved_price: float = price_data.get("price", 0.0)
+    return {
         "new_savings": impact["new_savings"],
         "progress_pct": impact["progress"],
         "delta": impact["delta"],
@@ -234,20 +307,23 @@ async def run_agent_loop(
         "price_min": price_data.get("price_min", resolved_price),
         "price_max": price_data.get("price_max", resolved_price),
         "source": price_data.get("source", ""),
-        "confidence": confidence,
+        "confidence": price_data.get("confidence", "unknown"),
         "sources": price_data.get("sources", []),
     }
-    yield f'2:{json.dumps([savings_payload])}\n'
 
-    prompt_tokens = 0
-    completion_tokens = 0
 
+async def _stream_verdict(glm_client: AsyncOpenAI, model: str, messages: list[dict]):
+    """
+    Async generator that streams the GLM verdict and emits Vercel Data Stream
+    Protocol lines: 0: text chunks, then e: and d: finish events.
+    """
     response = await glm_client.chat.completions.create(
         model=model,
-        messages=full_messages,
+        messages=messages,
         stream=True,
     )
-
+    prompt_tokens = 0
+    completion_tokens = 0
     async for chunk in response:
         choice = chunk.choices[0] if chunk.choices else None
         if not choice:
@@ -259,12 +335,47 @@ async def run_agent_loop(
             prompt_tokens = chunk.usage.prompt_tokens or prompt_tokens
             completion_tokens = chunk.usage.completion_tokens or completion_tokens
 
-    finish_meta = json.dumps(
-        {
-            "finishReason": "stop",
-            "usage": {"promptTokens": prompt_tokens, "completionTokens": completion_tokens},
-            "isContinued": False,
-        }
-    )
+    finish_meta = json.dumps({
+        "finishReason": "stop",
+        "usage": {"promptTokens": prompt_tokens, "completionTokens": completion_tokens},
+        "isContinued": False,
+    })
     yield f'e:{finish_meta}\n'
     yield f'd:{finish_meta}\n'
+
+
+async def run_agent_loop(
+    messages: list[dict],
+    savings: float,
+    target: float,
+    mcp_session: ClientSession,
+    glm_client: AsyncOpenAI,
+    model: str,
+    transactions: list[dict] | None = None,
+    persona: str = "snarky",
+):
+    """Async generator: yields Vercel Data Stream Protocol lines (f/0/2/e/d)."""
+    msg_id = str(uuid4())
+    yield f'f:{json.dumps({"messageId": msg_id})}\n'
+    history = list(messages)
+    if _estimate_tokens([{"role": "system", "content": build_system_prompt(persona)}] + history) > int(_MODEL_CTX_LIMIT * _COMPRESS_THRESHOLD):
+        history = await _compress_history(history, glm_client)
+    full_messages: list[dict] = [{"role": "system", "content": build_system_prompt(persona)}] + history
+    user_query = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
+    intent = await _extract_intent(user_query, glm_client)
+    if not intent["is_purchase"]:
+        yield f'2:{json.dumps([_build_no_intent_sentinel(savings, target)])}\n'
+        async for line in _stream_verdict(glm_client, model, full_messages):
+            yield line
+        return
+    price_data = await _resolve_price(intent, mcp_session)
+    resolved_price: float = price_data.get("price", 0.0)
+    impact = calculate_savings_impact(resolved_price, savings, target)
+    tx_analysis = _analyze_transactions(transactions or [])
+    price_context = _build_price_context(price_data)
+    tool_context = _build_tool_context(price_context, savings, target, impact, tx_analysis)
+    full_messages = _inject_tool_exchange(full_messages, tool_context, user_query)
+    savings_payload = _build_savings_payload(price_data, impact)
+    yield f'2:{json.dumps([savings_payload])}\n'
+    async for line in _stream_verdict(glm_client, model, full_messages):
+        yield line
