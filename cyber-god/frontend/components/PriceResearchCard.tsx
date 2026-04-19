@@ -23,6 +23,8 @@ export default function PriceResearchCard({
   const progressBefore = target > 0 ? Math.max(0, (currentSavings / target) * 100) : 0;
   const progressAfter  = Math.max(0, progress_pct);
 
+  if (confidence === 'no_intent') return null;
+
   // Price unknown → ask-user state
   if (confidence === 'unknown') {
     return (
