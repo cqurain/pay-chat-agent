@@ -13,9 +13,8 @@ import json
 import os
 import random
 import statistics
-from concurrent.futures import ThreadPoolExecutor
 
-import requests
+import httpx
 from mcp import types
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -89,47 +88,54 @@ def _catalog_lookup(query: str) -> tuple[str, tuple[float, float, float]] | None
     return (best_key, CATALOG[best_key]) if best_key else None
 
 
-def _baidu_search_sync(keyword: str) -> list[dict]:
+def _parse_baidu_details(raw: str) -> list[dict]:
+    """Parse Baidu MCP raw text into [{text, url}] snippets."""
+    snippets: list[dict] = []
+    for block in raw.split("details:"):
+        block = block.strip()
+        if not block:
+            continue
+        url = ""
+        for line in block.splitlines():
+            if line.startswith("URL:"):
+                url = line[4:].strip()
+                break
+        snippets.append({"text": block, "url": url or "baidu_mcp"})
+    return snippets
+
+
+async def _baidu_mcp_search(keyword: str) -> list[dict]:
+    """Search via Baidu AI Search MCP (JSON-RPC over httpx, no model/streaming)."""
     api_key = os.getenv("BAIDU_AI_SEARCH_API_KEY")
     if not api_key:
         return []
     try:
-        url = "https://qianfan.baidubce.com/v2/ai_search/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "messages": [{"role": "user", "content": f"{keyword} 价格多少钱"}],
-            "model": "ernie-4.5-turbo-128k",
-            "stream": False,
-            "search_source": "baidu_search_v2",
-        }
-        resp = requests.post(url, json=payload, headers=headers, timeout=15)
-        resp.raise_for_status()
-        data = resp.json()
-
-        answer = data["choices"][0]["message"]["content"]
-        references = data.get("references", [])
-
-        # Answer first (AI summary, most reliable), then individual references
-        snippets: list[dict] = [{"text": answer, "url": "baidu_ai_answer"}]
-        snippets += [
-            {
-                "text": (r.get("content", "") + " " + r.get("title", "")).strip(),
-                "url": r.get("url", ""),
-            }
-            for r in references
-        ]
-        return snippets
+        url = "https://qianfan.baidubce.com/v2/ai_search/mcp"
+        hdrs = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        async with httpx.AsyncClient(headers=hdrs, timeout=30) as client:
+            await client.post(url, json={
+                "jsonrpc": "2.0", "method": "initialize",
+                "params": {"protocolVersion": "2024-11-05", "capabilities": {},
+                           "clientInfo": {"name": "cyber-god", "version": "1.0"}},
+                "id": 1,
+            })
+            r = await client.post(url, json={
+                "jsonrpc": "2.0", "method": "tools/call",
+                "params": {"name": "chatCompletions", "arguments": {
+                    "query": f"{keyword} 价格",
+                    "resource_type_filter": [{"type": "web", "top_k": 5}],
+                }},
+                "id": 2,
+            })
+            r.raise_for_status()
+            content = r.json().get("result", {}).get("content", [])
+            snippets: list[dict] = []
+            for item in content:
+                if item.get("type") == "text" and item.get("text"):
+                    snippets.extend(_parse_baidu_details(item["text"]))
+            return snippets
     except Exception:
         return []
-
-
-async def _baidu_search(keyword: str) -> list[dict]:
-    loop = asyncio.get_event_loop()
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        return await loop.run_in_executor(pool, _baidu_search_sync, keyword)
 
 
 async def _llm_extract_prices(snippets: list[dict], client: AsyncOpenAI) -> list[dict]:
@@ -178,7 +184,7 @@ async def _llm_extract_prices(snippets: list[dict], client: AsyncOpenAI) -> list
 
 
 async def _resolve_price(keyword: str) -> dict:
-    raw_snippets = await _baidu_search(keyword)
+    raw_snippets = await _baidu_mcp_search(keyword)
     sources = await _llm_extract_prices(raw_snippets, _glm_client)
 
     if sources:
