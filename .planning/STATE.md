@@ -103,14 +103,20 @@ Phase 3 [██████████] 100%  Deployment
 
 - (none)
 
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260419-nlk | 实现全部5项改动：LLM意图提取、知识截止修复、价格渠道来源、人设切换、Tavily优先 | 2026-04-19 | db88194 | [260419-nlk-5-llm-tavily](.planning/quick/260419-nlk-5-llm-tavily/) |
+
 ---
 
 ## Session Continuity
 
-**Last session**: 2026-04-19 — Phase 3 deployment complete; full stack verified on remote server
+**Last session**: 2026-04-19 — Quick task 260419-nlk complete: 5 agent improvements (LLM intent extraction, knowledge cutoff fix, price source channels, persona toggle, Tavily-first)
 **Next action**: v1.0 milestone complete — run `/gsd-complete-milestone` to archive
 
 ---
 
 *State initialized: 2026-04-18*
-*Last updated: 2026-04-19 — v1.0 milestone complete*
+*Last updated: 2026-04-19 — Quick task 260419-nlk: 5 agent improvements*
