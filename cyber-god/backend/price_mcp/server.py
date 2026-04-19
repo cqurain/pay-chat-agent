@@ -2,10 +2,9 @@
 Local MCP price server for Cyber God of Wealth.
 
 Price resolution strategy:
-  1. Tavily search "{keyword} 价格"                → confidence: scraped
-  2. DDGS search "{keyword} 价格" (Tavily fallback) → confidence: scraped
-  3. Catalog fallback (60+ categories)             → confidence: reference
-  4. No match                                      → confidence: unknown
+  1. Baidu AI Search → LLM extracts prices from answer + references
+  2. Catalog fallback (60+ categories)  → confidence: reference
+  3. No match                           → confidence: unknown
 
 Exposes: search_products(query) → [{name, price, price_min, price_max, source, confidence, currency, sources}]
 """
@@ -13,11 +12,10 @@ import asyncio
 import json
 import os
 import random
-import re
 import statistics
 from concurrent.futures import ThreadPoolExecutor
 
-from ddgs import DDGS
+import requests
 from mcp import types
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -25,7 +23,6 @@ from openai import AsyncOpenAI
 
 server = Server("price-mcp")
 
-_TAVILY_API_KEY: str | None = os.getenv("TAVILY_API_KEY")
 _glm_client = AsyncOpenAI(
     api_key=os.getenv("ZHIPU_API_KEY", ""),
     base_url="https://open.bigmodel.cn/api/paas/v4/",
@@ -92,74 +89,55 @@ def _catalog_lookup(query: str) -> tuple[str, tuple[float, float, float]] | None
     return (best_key, CATALOG[best_key]) if best_key else None
 
 
-def _ddgs_search_sync(keyword: str) -> list[dict]:
+def _baidu_search_sync(keyword: str) -> list[dict]:
+    api_key = os.getenv("BAIDU_AI_SEARCH_API_KEY")
+    if not api_key:
+        return []
     try:
-        with DDGS() as d:
-            results = list(d.text(f"{keyword} 价格", region="cn-zh", max_results=6))
-        return [
-            {"text": (r.get("body", "") + " " + r.get("title", "")).strip(), "url": r.get("href", "")}
-            for r in results
+        url = "https://qianfan.baidubce.com/v2/ai_search/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "messages": [{"role": "user", "content": f"{keyword} 价格多少钱"}],
+            "model": "ernie-4.5-turbo-128k",
+            "stream": False,
+            "search_source": "baidu_search_v2",
+        }
+        resp = requests.post(url, json=payload, headers=headers, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+
+        answer = data["choices"][0]["message"]["content"]
+        references = data.get("references", [])
+
+        # Answer first (AI summary, most reliable), then individual references
+        snippets: list[dict] = [{"text": answer, "url": "baidu_ai_answer"}]
+        snippets += [
+            {
+                "text": (r.get("content", "") + " " + r.get("title", "")).strip(),
+                "url": r.get("url", ""),
+            }
+            for r in references
         ]
+        return snippets
     except Exception:
         return []
 
 
-def _tavily_search_sync(keyword: str) -> list[dict]:
-    if not _TAVILY_API_KEY:
-        return []
-    try:
-        from tavily import TavilyClient
-        client = TavilyClient(api_key=_TAVILY_API_KEY)
-        resp = client.search(f"{keyword} 价格", max_results=5)
-        return [
-            {"text": (r.get("content", "") + " " + r.get("title", "")).strip(), "url": r.get("url", "")}
-            for r in resp.get("results", [])
-        ]
-    except Exception:
-        return []
-
-
-async def _ddgs_search(keyword: str) -> list[dict]:
+async def _baidu_search(keyword: str) -> list[dict]:
     loop = asyncio.get_event_loop()
     with ThreadPoolExecutor(max_workers=1) as pool:
-        return await loop.run_in_executor(pool, _ddgs_search_sync, keyword)
-
-
-async def _tavily_search(keyword: str) -> list[dict]:
-    loop = asyncio.get_event_loop()
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        return await loop.run_in_executor(pool, _tavily_search_sync, keyword)
-
-
-_PRICE_RE = re.compile(
-    r"[¥￥]\s*(\d{1,6}(?:[.,]\d{1,2})?)"
-    r"|(\d{1,6}(?:\.\d{1,2})?)\s*元"
-)
-
-
-def _regex_extract_prices(snippets: list[dict]) -> list[dict]:
-    """Fallback: extract prices via regex when LLM returns nothing (e.g. garbled encoding)."""
-    out: list[dict] = []
-    for s in snippets:
-        url = s.get("url", "")
-        for m in _PRICE_RE.finditer(s.get("text", "")):
-            raw = (m.group(1) or m.group(2) or "").replace(",", "")
-            try:
-                price = float(raw)
-                if 10 <= price <= 100_000:
-                    out.append({"price": price, "platform": _infer_platform(url), "url": url})
-                    break
-            except ValueError:
-                pass
-    return out
+        return await loop.run_in_executor(pool, _baidu_search_sync, keyword)
 
 
 async def _llm_extract_prices(snippets: list[dict], client: AsyncOpenAI) -> list[dict]:
-    """Use glm-4-flash JSON mode to extract prices from raw search snippets."""
+    """Use glm-4-flash JSON mode to extract prices from search snippets."""
     if not snippets:
         return []
     snippet_text = "\n".join(
-        f"[{i+1}] url={s['url']}\n{s['text'][:300]}"
+        f"[{i+1}] url={s['url']}\n{s['text'][:400]}"
         for i, s in enumerate(snippets)
     )
     try:
@@ -182,9 +160,8 @@ async def _llm_extract_prices(snippets: list[dict], client: AsyncOpenAI) -> list
         )
         content = resp.choices[0].message.content or "{}"
         data = json.loads(content)
-        raw_prices = data.get("prices", [])
         out: list[dict] = []
-        for item in raw_prices:
+        for item in data.get("prices", []):
             try:
                 price = float(item["price"])
                 if 10 <= price <= 100_000:
@@ -201,14 +178,8 @@ async def _llm_extract_prices(snippets: list[dict], client: AsyncOpenAI) -> list
 
 
 async def _resolve_price(keyword: str) -> dict:
-    # 1. Collect raw snippets: Tavily first, DDGS second
-    raw_snippets: list[dict] = await _tavily_search(keyword)
-    if not raw_snippets:
-        raw_snippets = await _ddgs_search(keyword)
-
-    sources: list[dict] = await _llm_extract_prices(raw_snippets, _glm_client)
-    if not sources and raw_snippets:
-        sources = _regex_extract_prices(raw_snippets)
+    raw_snippets = await _baidu_search(keyword)
+    sources = await _llm_extract_prices(raw_snippets, _glm_client)
 
     if sources:
         # Dedup: per platform keep lowest price
@@ -235,7 +206,7 @@ async def _resolve_price(keyword: str) -> dict:
                 "price": round(statistics.median(prices), 2),
                 "price_min": round(min(prices), 2),
                 "price_max": round(max(prices), 2),
-                "source": "网络搜索",
+                "source": "百度搜索",
                 "confidence": "scraped",
                 "currency": "CNY",
                 "sources": deduped,
@@ -253,7 +224,6 @@ async def _resolve_price(keyword: str) -> dict:
             "sources": [],
         }
 
-    # Unknown
     return {
         "name": keyword,
         "price": 0.0, "price_min": 0.0, "price_max": 0.0,
@@ -268,7 +238,7 @@ async def list_tools() -> list[types.Tool]:
         types.Tool(
             name="search_products",
             description=(
-                "Resolve product price via Tavily/DDGS search then catalog fallback. "
+                "Resolve product price via Baidu AI Search then catalog fallback. "
                 "Returns confidence: scraped | reference | unknown, plus sources list."
             ),
             inputSchema={
