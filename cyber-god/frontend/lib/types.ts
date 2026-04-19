@@ -22,7 +22,7 @@ export interface SavingsPayload {
   price_min?: number;
   price_max?: number;
   source?: string;
-  confidence?: 'user_stated' | 'scraped' | 'reference' | 'unknown';
+  confidence?: 'user_stated' | 'scraped' | 'reference' | 'unknown' | 'no_intent';
   sources?: PriceSource[];
 }
 

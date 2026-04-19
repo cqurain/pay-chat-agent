@@ -31,7 +31,7 @@ export function loadTransactions(): TransactionRecord[] {
 export function saveTransaction(tx: Omit<TransactionRecord, 'id'>): TransactionRecord {
   const record: TransactionRecord = {
     ...tx,
-    id: crypto.randomUUID(),
+    id: typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
   };
   const existing = loadTransactions();
   const updated = [record, ...existing].slice(0, MAX_TRANSACTIONS);
