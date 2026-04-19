@@ -10,15 +10,19 @@ Exposes: search_products(query) → [{name, price, price_min, price_max, source,
 """
 import asyncio
 import json
+import logging
 import os
 import random
 import statistics
+import sys
 
 import httpx
 from mcp import types
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from openai import AsyncOpenAI
+
+logging.basicConfig(stream=sys.stderr, level=logging.DEBUG, format="[price-mcp] %(levelname)s %(message)s")
 
 server = Server("price-mcp")
 
@@ -108,6 +112,7 @@ async def _baidu_mcp_search(keyword: str) -> list[dict]:
     """Search via Baidu AI Search MCP (JSON-RPC over httpx, no model/streaming)."""
     api_key = os.getenv("BAIDU_AI_SEARCH_API_KEY")
     if not api_key:
+        logging.warning("BAIDU_AI_SEARCH_API_KEY not set — skipping Baidu search")
         return []
     try:
         url = "https://qianfan.baidubce.com/v2/ai_search/mcp"
@@ -128,13 +133,17 @@ async def _baidu_mcp_search(keyword: str) -> list[dict]:
                 "id": 2,
             })
             r.raise_for_status()
-            content = r.json().get("result", {}).get("content", [])
+            raw = r.json()
+            logging.debug("Baidu raw response: %s", json.dumps(raw, ensure_ascii=False)[:800])
+            content = raw.get("result", {}).get("content", [])
             snippets: list[dict] = []
             for item in content:
                 if item.get("type") == "text" and item.get("text"):
                     snippets.extend(_parse_baidu_details(item["text"]))
+            logging.debug("Baidu snippets extracted: %d for keyword=%r", len(snippets), keyword)
             return snippets
-    except Exception:
+    except Exception as exc:
+        logging.error("Baidu MCP search failed for %r: %s", keyword, exc, exc_info=True)
         return []
 
 
@@ -153,10 +162,14 @@ async def _llm_extract_prices(snippets: list[dict], client: AsyncOpenAI) -> list
                 {
                     "role": "system",
                     "content": (
-                        "从以下搜索结果中提取商品价格，以JSON格式返回，格式：\n"
+                        "从以下搜索结果中提取零售商品价格，以JSON格式返回，格式：\n"
                         '{"prices": [{"price": 数字, "platform": "平台名", "url": "来源URL"}]}\n'
-                        "price必须是数字（不含符号），platform从URL推断，最多返回5条。\n"
-                        "如果找不到价格，返回 {\"prices\": []}。"
+                        "要求：\n"
+                        "1. price必须是数字（不含符号），platform从URL推断，最多返回8条\n"
+                        "2. 只提取面向消费者的零售价，忽略批发价、出厂价、报价区间的极低值\n"
+                        "3. 如果是价格区间（如¥88.5-¥1062），取区间中位数\n"
+                        "4. 尽量从所有snippet中都提取，不要只看前1-2条\n"
+                        "5. 如果找不到价格，返回 {\"prices\": []}。"
                     ),
                 },
                 {"role": "user", "content": snippet_text},
@@ -178,8 +191,10 @@ async def _llm_extract_prices(snippets: list[dict], client: AsyncOpenAI) -> list
                     })
             except (KeyError, ValueError, TypeError):
                 pass
+        logging.debug("LLM extracted %d prices from snippets", len(out))
         return out
-    except Exception:
+    except Exception as exc:
+        logging.error("LLM price extraction failed: %s", exc, exc_info=True)
         return []
 
 
@@ -188,13 +203,16 @@ async def _resolve_price(keyword: str) -> dict:
     sources = await _llm_extract_prices(raw_snippets, _glm_client)
 
     if sources:
-        # Dedup: per platform keep lowest price
-        best: dict[str, dict] = {}
+        # Dedup: per platform keep the entry closest to the median price
+        # (avoids selecting bulk/wholesale unit prices from B2B platforms like 1688)
+        by_platform: dict[str, list[dict]] = {}
         for s in sources:
-            p = s["platform"]
-            if p not in best or s["price"] < best[p]["price"]:
-                best[p] = s
-        deduped = sorted(best.values(), key=lambda x: x["price"])[:3]
+            by_platform.setdefault(s["platform"], []).append(s)
+        best: list[dict] = []
+        for entries in by_platform.values():
+            med = statistics.median(e["price"] for e in entries)
+            best.append(min(entries, key=lambda e: abs(e["price"] - med)))
+        deduped = sorted(best, key=lambda x: x["price"])[:3]
         prices = [s["price"] for s in deduped]
 
         # Guard with catalog if available

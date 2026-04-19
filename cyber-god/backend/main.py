@@ -1,4 +1,5 @@
 import os
+import sys
 from contextlib import asynccontextmanager, AsyncExitStack
 
 from fastapi import FastAPI
@@ -21,9 +22,9 @@ async def lifespan(app: FastAPI):
     await exit_stack.__aenter__()
 
     server_params = StdioServerParameters(
-        command="python3",
+        command=sys.executable,
         args=[MCP_SERVER_PATH],
-        env=None,
+        env=dict(os.environ),  # stdio_client does not inherit os.environ when env=None
     )
     stdio_transport = await exit_stack.enter_async_context(stdio_client(server_params))
     stdio, write = stdio_transport

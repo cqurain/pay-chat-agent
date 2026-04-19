@@ -202,7 +202,7 @@ def _build_price_context(price_data: dict) -> str:
     resolved_price: float = price_data.get("price", 0.0)
 
     if confidence == "unknown":
-        return "价格未知（搜索失败），请用毒舌角色语气追问用户这个东西到底多少钱。"
+        return "价格未知（搜索失败），请用角色语气追问用户这个东西到底多少钱。"
     elif confidence == "user_stated":
         return f"用户自己说的价格：¥{resolved_price:.0f}，直接用这个数字。"
     else:
