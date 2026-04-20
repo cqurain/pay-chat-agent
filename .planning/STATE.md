@@ -109,12 +109,13 @@ Phase 3 [██████████] 100%  Deployment
 |---|-------------|------|--------|-----------|
 | 260419-nlk | 实现全部5项改动：LLM意图提取、知识截止修复、价格渠道来源、人设切换、Tavily优先 | 2026-04-19 | db88194 | [260419-nlk-5-llm-tavily](.planning/quick/260419-nlk-5-llm-tavily/) |
 | 260419-sw7 | 重构 loop.py 和 server.py：按职责拆函数，LLM 价格提取替换正则 | 2026-04-19 | 9a631a4 | [260419-sw7-loop-py-server-py-loop-py-resolve-price-](.planning/quick/260419-sw7-loop-py-server-py-loop-py-resolve-price-/) |
+| 260420-v98 | Refactor cyber-god backend agent to ReAct-lite with real GLM-5 function calling | 2026-04-20 | 436aa3e | [260420-v98-refactor-cyber-god-backend-agent-to-reac](.planning/quick/260420-v98-refactor-cyber-god-backend-agent-to-reac/) |
 
 ---
 
 ## Session Continuity
 
-**Last session**: 2026-04-19 — Quick task 260419-sw7 complete: refactor loop.py + server.py by responsibility, LLM price extraction replaces regex
+**Last session**: 2026-04-20 — Quick task 260420-v98 complete: ReAct-lite refactor — real GLM-5 function calling, multi-item support, robustness fixes
 **Next action**: v1.0 milestone complete — run `/gsd-complete-milestone` to archive
 
 ---
