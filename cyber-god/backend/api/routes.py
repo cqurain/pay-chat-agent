@@ -78,6 +78,8 @@ async def chat(body: ChatRequest, request: Request):
     async def safe_stream():
         try:
             async for line in gen:
+                if await request.is_disconnected():
+                    break
                 yield line
         except Exception:
             err_text = "财神系统故障，请稍后再试。"

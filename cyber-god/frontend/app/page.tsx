@@ -71,11 +71,14 @@ export default function ChatPage() {
 
   const typedChatData = (chatData ?? []) as unknown as SavingsPayload[];
 
-  // Keep delta in sync for ProgressBar flash animation
+  // Keep delta in sync for ProgressBar flash animation.
+  // Scan backwards because verdict payloads (no delta) may arrive after savings payloads.
   useEffect(() => {
-    if (typedChatData.length > 0) {
-      const last = typedChatData[typedChatData.length - 1];
-      if (typeof last?.delta === 'number') setDelta(last.delta);
+    for (let i = typedChatData.length - 1; i >= 0; i--) {
+      if (typeof typedChatData[i]?.delta === 'number') {
+        setDelta(typedChatData[i].delta);
+        break;
+      }
     }
   }, [chatData]); // eslint-disable-line react-hooks/exhaustive-deps
 

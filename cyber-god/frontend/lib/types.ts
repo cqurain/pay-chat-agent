@@ -25,6 +25,7 @@ export interface SavingsPayload {
   confidence?: 'user_stated' | 'scraped' | 'reference' | 'unknown' | 'no_intent';
   sources?: PriceSource[];
   items?: Array<{ name: string; price: number; confidence: string }>;
+  verdict?: '批准' | '驳回' | null;
 }
 
 /** Single chat message */

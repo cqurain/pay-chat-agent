@@ -338,16 +338,21 @@ async def _stream_verdict(glm_client: AsyncOpenAI, model: str, messages: list[di
     )
     prompt_tokens = 0
     completion_tokens = 0
+    full_text = ""
     async for chunk in response:
         choice = chunk.choices[0] if chunk.choices else None
         if not choice:
             continue
         text = (choice.delta.content or "") if choice.delta else ""
         if text:
+            full_text += text
             yield f'0:{json.dumps(text)}\n'
         if hasattr(chunk, "usage") and chunk.usage:
             prompt_tokens = chunk.usage.prompt_tokens or prompt_tokens
             completion_tokens = chunk.usage.completion_tokens or completion_tokens
+
+    verdict: str | None = "批准" if "批准" in full_text else "驳回" if "驳回" in full_text else None
+    yield f'2:{json.dumps([{"verdict": verdict}])}\n'
 
     finish_meta = json.dumps({
         "finishReason": "stop",

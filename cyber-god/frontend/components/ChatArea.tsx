@@ -13,7 +13,10 @@ interface ChatAreaProps {
   onExampleClick: (text: string) => void;
 }
 
-function getVerdictBorder(content: string): string {
+function getVerdictBorder(content: string, verdict?: '批准' | '驳回' | null): string {
+  if (verdict === '批准') return 'border-l-4 border-green-500';
+  if (verdict === '驳回') return 'border-l-4 border-red-500';
+  // Fallback: parse text for messages still streaming (verdict not yet arrived)
   const firstLine = content.split('\n')[0];
   if (firstLine.includes('【批准】')) return 'border-l-4 border-green-500';
   if (firstLine.includes('【拒绝】') || firstLine.includes('【驳回】')) return 'border-l-4 border-red-500';
@@ -64,7 +67,9 @@ export default function ChatArea({
     );
   }
 
-  // Associate each assistant message with its chatData payload by index
+  // Split chatData: savings payloads have 'confidence', verdict payloads have 'verdict' key
+  const savingsPayloads = chatData.filter((d) => 'confidence' in d);
+  const verdictPayloads = chatData.filter((d) => 'verdict' in d);
   let assistantIdx = 0;
 
   return (
@@ -82,12 +87,13 @@ export default function ChatArea({
         }
 
         if (msg.role === 'assistant') {
-          const payload = chatData[assistantIdx] as SavingsPayload | undefined;
+          const payload = savingsPayloads[assistantIdx] as SavingsPayload | undefined;
+          const verdictEntry = verdictPayloads[assistantIdx] as SavingsPayload | undefined;
           const currentIdx = assistantIdx;
           assistantIdx++;
 
           const isThisLoading = isLoading && currentIdx === assistantIdx - 1;
-          const verdictBorder = getVerdictBorder(msg.content);
+          const verdictBorder = getVerdictBorder(msg.content, verdictEntry?.verdict);
 
           // Reconstruct savings-before from payload (delta = -price, so before = new + price)
           const savingsBefore = payload ? payload.new_savings - payload.delta : 0;
