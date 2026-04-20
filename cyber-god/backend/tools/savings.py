@@ -1,3 +1,9 @@
+def calculate_combined_impact(price_results: list[dict], savings: float, target: float) -> dict:
+    """Aggregate savings impact for one or more price results."""
+    total_price = sum(r.get("price", 0.0) for r in price_results)
+    return calculate_savings_impact(total_price, savings, target)
+
+
 def calculate_savings_impact(price: float, savings: float, target: float) -> dict:
     """
     Calculate the impact of a purchase on savings progress.
