@@ -18,7 +18,7 @@ export default function PriceResearchCard({
   target,
 }: PriceResearchCardProps) {
   const { confidence, product_name, price_min, price_max, price_found, source,
-          new_savings, progress_pct, delta, sources } = payload;
+          new_savings, progress_pct, delta, sources, items } = payload;
 
   const progressBefore = target > 0 ? Math.max(0, (currentSavings / target) * 100) : 0;
   const progressAfter  = Math.max(0, progress_pct);
@@ -63,6 +63,16 @@ export default function PriceResearchCard({
             <p className="text-gray-600 mt-0.5">¥{fmt(price_found ?? 0)}</p>
           )}
           <div className="mt-0.5">{sourceTag}</div>
+          {items && items.length > 1 && (
+            <div className="mt-2 space-y-0.5">
+              {items.map((item, i) => (
+                <div key={i} className="flex justify-between text-xs text-gray-600">
+                  <span className="truncate mr-2">{item.name}</span>
+                  <span className="shrink-0">¥{fmt(item.price)}</span>
+                </div>
+              ))}
+            </div>
+          )}
           {confidence === 'scraped' && sources && sources.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-1">
               {sources.map((s: PriceSource) => (
